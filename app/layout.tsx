@@ -1,6 +1,12 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { Fraunces, IBM_Plex_Sans, IBM_Plex_Mono } from "next/font/google";
+
+   const fraunces = Fraunces({ subsets: ["latin"], variable: "--font-display-loaded" });
+   const plexSans = IBM_Plex_Sans({ subsets: ["latin"], weight: ["400", "500", "600"], variable: "--font-body-loaded" });
+   const plexMono = IBM_Plex_Mono({ subsets: ["latin"], weight: ["400", "500"], variable: "--font-data-loaded" });
+
 
 const geistSans = Geist({
   variable: "--font-geist-sans",

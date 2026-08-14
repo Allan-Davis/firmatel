@@ -1,0 +1,55 @@
+/**
+ * styles/design-tokens.css
+ * New file. Import it once at the top of app/globals.css:
+ *   @import "../styles/design-tokens.css";
+ */
+
+:root {
+  --ink-950: #0a0d12;
+  --ink-900: #10151c;
+  --ink-800: #1a222c;
+  --ink-700: #262f3b;
+  --ink-600: #3a4553;
+
+  --paper-50: #faf9f5;
+  --paper-100: #f4f2ea;
+  --paper-200: #e8e4d6;
+
+  --brass-400: #d4b571;
+  --brass-500: #c9a34e;
+  --brass-600: #a9863b;
+
+  --signal-valid: #1f8f6e;
+  --signal-valid-bg: #123227;
+  --signal-revoked: #c14f5f;
+  --signal-revoked-bg: #351a1f;
+  --signal-pending: #b98a3a;
+  --signal-pending-bg: #302311;
+
+  --text-primary-on-dark: #eceef0;
+  --text-secondary-on-dark: #9aa4b2;
+  --text-primary-on-paper: #1a1e24;
+  --text-secondary-on-paper: #5b6472;
+
+  --font-display: "Fraunces", "Newsreader", Georgia, serif;
+  --font-body: "IBM Plex Sans", "Inter", -apple-system, sans-serif;
+  --font-data: "IBM Plex Mono", "JetBrains Mono", ui-monospace, monospace;
+
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+
+  --ease-plate: cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.plate-texture {
+  background-repeat: repeat;
+  background-blend-mode: overlay;
+  color: var(--brass-500);
+}
+
+.font-data {
+  font-family: var(--font-data);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}

@@ -1,0 +1,410 @@
+// ============================================================
+// Firmatel — prisma/schema.prisma
+// COMPLETE FILE. This reconstructs your existing schema exactly
+// as it is in your live database (from firmatel.sql) and adds the
+// security upgrade models/fields on top. Overwrite your current
+// prisma/schema.prisma with this file entirely — don't merge by
+// hand, this already contains everything you have today plus the
+// additions.
+// ============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+// ---------------------------------------------------------------
+// ORGANIZATION
+// ---------------------------------------------------------------
+enum OrganizationStatus {
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
+enum OrganizationType {
+  COMPANY
+  SCHOOL
+  UNIVERSITY
+  COLLEGE
+  TRAINING_INSTITUTION
+  CHURCH
+  HOSPITAL
+  BANK
+  SACCO
+  NGO
+  GOVERNMENT
+  EVENT_ORGANIZER
+  PROFESSIONAL_BODY
+  ASSOCIATION
+  OTHER
+}
+
+model Organization {
+  id               String             @id @default(cuid())
+  name             String
+  slug             String             @unique
+  email            String?
+  phone            String?
+  address          String?            @db.Text
+  status           OrganizationStatus @default(ACTIVE)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  documentPrefix   String?            @unique
+  logoUrl          String?            @db.Text
+  primaryColor     String?
+  secondaryColor   String?
+  type             OrganizationType   @default(COMPANY)
+  verificationUrl  String?
+  website          String?
+
+  settings         OrganizationSetting?
+  users            User[]
+  departments      Department[]
+  recipients       Recipient[]
+  documents        Document[]
+  credentials      Credential[]
+  tickets          Ticket[]
+  auditLogs        AuditLog[]
+  key              OrganizationKey?
+  templates        DocumentTemplate[]
+
+  @@index([status])
+  @@index([type])
+}
+
+model OrganizationSetting {
+  id                            String   @id @default(cuid())
+  organizationId                String   @unique
+  timezone                      String   @default("Africa/Nairobi")
+  dateFormat                    String   @default("DD/MM/YYYY")
+  defaultDocumentValidityDays   Int?
+  requireQrVerification         Boolean  @default(true)
+  requireRecipientEmail         Boolean  @default(false)
+  requireRecipientPhone         Boolean  @default(false)
+  allowPublicVerification       Boolean  @default(true)
+  createdAt                     DateTime @default(now())
+  updatedAt                     DateTime @updatedAt
+
+  organization                  Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// ---------------------------------------------------------------
+// ORGANIZATION SECURITY KEY  (NEW)
+// ---------------------------------------------------------------
+model OrganizationKey {
+  id             String    @id @default(cuid())
+  organizationId String    @unique
+  publicKey      String    @db.Text
+  privateKeyEnc  String    @db.Text
+  keyVersion     Int       @default(1)
+  createdAt      DateTime  @default(now())
+  rotatedAt      DateTime?
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// ---------------------------------------------------------------
+// USERS & DEPARTMENTS
+// ---------------------------------------------------------------
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ORGANIZATION_ADMIN
+  MANAGER
+  ISSUER
+  VERIFIER
+  STAFF
+}
+
+model User {
+  id             String     @id @default(cuid())
+  organizationId String
+  name           String
+  email          String
+  passwordHash   String
+  status         UserStatus @default(ACTIVE)
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  role           UserRole   @default(STAFF)
+  departmentId   String?
+  lastLoginAt    DateTime?
+  lastLoginIp    String?
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  department     Department?  @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, email])
+  @@index([organizationId])
+  @@index([status])
+  @@index([departmentId])
+  @@index([role])
+}
+
+model Department {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  code           String?
+  description    String?  @db.Text
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  users          User[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@index([code])
+}
+
+// ---------------------------------------------------------------
+// RECIPIENTS
+// ---------------------------------------------------------------
+model Recipient {
+  id             String   @id @default(cuid())
+  organizationId String
+  fullName       String
+  email          String?
+  phone          String?
+  identifier     String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  photoUrl       String? @db.LongText
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  documents      Document[]
+  credentials    Credential[]
+  tickets        Ticket[]
+
+  @@index([organizationId])
+  @@index([email])
+  @@index([phone])
+}
+
+// ---------------------------------------------------------------
+// DOCUMENT TEMPLATE  (NEW)
+// ---------------------------------------------------------------
+model DocumentTemplate {
+  id              String   @id @default(cuid())
+  organizationId  String
+  name            String
+  documentType    String
+  version         Int      @default(1)
+  isActive        Boolean  @default(true)
+  layout          Json
+  securityLevel   String   @default("STANDARD")
+  backgroundSeed  String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  organization    Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, documentType])
+}
+
+// ---------------------------------------------------------------
+// DOCUMENT
+// ---------------------------------------------------------------
+enum DocumentStatus {
+  DRAFT
+  ISSUED
+  REVOKED
+  EXPIRED
+}
+
+model Document {
+  id               String         @id @default(cuid())
+  organizationId   String
+  recipientId      String?
+  documentNumber   String
+  documentType     String
+  title            String
+  description      String?        @db.Text
+  issueDate        DateTime       @default(now())
+  expiryDate       DateTime?
+  status           DocumentStatus @default(DRAFT)
+  verificationCode String         @unique
+  qrPayload        String?        @db.Text
+  fileUrl          String?        @db.Text
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  // --- security upgrade fields (NEW) ---
+  contentHash      String?        @db.VarChar(64)
+  signature        String?        @db.Text
+  signedAt         DateTime?
+  keyVersion       Int?
+  templateId       String?
+
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  recipient        Recipient?   @relation(fields: [recipientId], references: [id], onDelete: SetNull)
+  verificationEvents VerificationEvent[]
+
+  @@unique([organizationId, documentNumber])
+  @@index([organizationId])
+  @@index([recipientId])
+  @@index([documentType])
+  @@index([status])
+  @@index([verificationCode])
+}
+
+// ---------------------------------------------------------------
+// CREDENTIAL
+// ---------------------------------------------------------------
+enum CredentialStatus {
+  ACTIVE
+  SUSPENDED
+  REVOKED
+  EXPIRED
+}
+
+model Credential {
+  id                String           @id @default(cuid())
+  organizationId    String
+  recipientId       String?
+  credentialNumber  String
+  credentialType    String
+  title             String
+  description       String?          @db.Text
+  issueDate         DateTime         @default(now())
+  expiryDate        DateTime?
+  status            CredentialStatus @default(ACTIVE)
+  verificationCode  String           @unique
+  qrPayload         String?          @db.Text
+  fileUrl           String?          @db.Text
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  // --- security upgrade fields (NEW) ---
+  contentHash       String?          @db.VarChar(64)
+  signature         String?          @db.Text
+  signedAt          DateTime?
+  keyVersion        Int?
+
+  organization      Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  recipient         Recipient?   @relation(fields: [recipientId], references: [id], onDelete: SetNull)
+  verificationEvents VerificationEvent[]
+
+  @@unique([organizationId, credentialNumber])
+  @@index([organizationId])
+  @@index([recipientId])
+  @@index([credentialType])
+  @@index([status])
+  @@index([verificationCode])
+}
+
+// ---------------------------------------------------------------
+// TICKET
+// ---------------------------------------------------------------
+enum TicketStatus {
+  ACTIVE
+  USED
+  CANCELLED
+  EXPIRED
+}
+
+model Ticket {
+  id               String       @id @default(cuid())
+  organizationId   String
+  recipientId      String?
+  ticketNumber     String
+  ticketType       String
+  title            String
+  eventName        String?
+  eventDate        DateTime?
+  status           TicketStatus @default(ACTIVE)
+  verificationCode String       @unique
+  qrPayload        String?      @db.Text
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  // --- security upgrade fields (NEW) ---
+  contentHash      String?      @db.VarChar(64)
+  signature        String?      @db.Text
+  signedAt         DateTime?
+  keyVersion       Int?
+
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  recipient        Recipient?   @relation(fields: [recipientId], references: [id], onDelete: SetNull)
+  verificationEvents VerificationEvent[]
+
+  @@unique([organizationId, ticketNumber])
+  @@index([organizationId])
+  @@index([recipientId])
+  @@index([ticketType])
+  @@index([status])
+  @@index([verificationCode])
+}
+
+// ---------------------------------------------------------------
+// AUDIT LOG
+// ---------------------------------------------------------------
+model AuditLog {
+  id             String   @id @default(cuid())
+  organizationId String
+  action         String
+  entityType     String
+  entityId       String?
+  description    String?  @db.Text
+  ipAddress      String?
+  userAgent      String?  @db.Text
+  createdAt      DateTime @default(now())
+
+  // --- security upgrade fields (NEW): hash chain ---
+  previousHash   String?  @db.VarChar(64)
+  entryHash      String?  @db.VarChar(64)
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([entityType])
+  @@index([entityId])
+  @@index([createdAt])
+}
+
+// ---------------------------------------------------------------
+// VERIFICATION EVENT
+// ---------------------------------------------------------------
+enum VerificationResult {
+  VALID
+  INVALID
+  REVOKED
+  EXPIRED
+}
+
+model VerificationEvent {
+  id               String              @id @default(cuid())
+  verificationCode String
+  result           VerificationResult
+  documentId       String?
+  credentialId     String?
+  ticketId         String?
+  ipAddress        String?
+  userAgent        String?             @db.Text
+  verifiedAt       DateTime            @default(now())
+
+  // --- security upgrade fields (NEW): anomaly detection ---
+  country          String?
+  city             String?
+  isAnomalous      Boolean             @default(false)
+  anomalyReason    String?             @db.Text
+
+  document         Document?   @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  credential       Credential? @relation(fields: [credentialId], references: [id], onDelete: Cascade)
+  ticket           Ticket?     @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([verificationCode])
+  @@index([documentId])
+  @@index([credentialId])
+  @@index([ticketId])
+  @@index([verifiedAt])
+}

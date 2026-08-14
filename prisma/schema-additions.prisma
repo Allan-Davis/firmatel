@@ -1,0 +1,79 @@
+// ============================================================
+// FIRMATEL — SECURITY UPGRADE
+// Additions to your existing prisma/schema.prisma
+// Paste these models in, then run:
+//   npx prisma migrate dev --name security_upgrade
+// (or apply migrations/2026_security_upgrade.sql directly if
+//  you're managing MariaDB via phpMyAdmin/XAMPP)
+// ============================================================
+
+// ---- 1. Organization keypair ---------------------------------
+// Every organization gets its own Ed25519 keypair. The private key
+// signs documents at issuance; the public key is what verification
+// checks against. Never expose the private key to the browser —
+// it only ever touches server-side code (lib/security/signing.ts).
+model OrganizationKey {
+  id            String   @id @default(cuid())
+  organizationId String  @unique
+  publicKey     String   @db.Text   // base64, safe to expose publicly
+  privateKeyEnc String   @db.Text   // AES-256-GCM encrypted, server-only
+  keyVersion    Int      @default(1)
+  createdAt     DateTime @default(now())
+  rotatedAt     DateTime?
+
+  organization  Organization @relation(fields: [organizationId], references: [id])
+}
+
+// ---- 2. Document / Credential / Ticket signature fields -------
+// Add these fields to your EXISTING Document, Credential, and
+// Ticket models (don't create new tables for these three — just
+// extend what you already have):
+//
+//   contentHash   String?  @db.VarChar(64)   // SHA-256 of canonical payload
+//   signature     String?  @db.Text          // Ed25519 signature, base64
+//   signedAt      DateTime?
+//   keyVersion    Int?                        // which org key signed it
+//
+// contentHash is computed from a canonical, ordered JSON of the
+// fields that must not change silently (recipient, title, dates,
+// status, org id, document number). signature = sign(contentHash).
+// Verification recomputes the hash from the CURRENT db row and
+// checks it still matches what was signed — so even a direct DB
+// edit that skips your API is detectable.
+
+// ---- 3. Template designer -------------------------------------
+model DocumentTemplate {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  documentType   String              // "CERTIFICATE" | "ID" | "TICKET" | "RECEIPT" | ...
+  version        Int      @default(1)
+  isActive       Boolean  @default(true)
+  layout         Json                // field positions, fonts, sizes (mm-based canvas)
+  securityLevel  String   @default("STANDARD") // STANDARD | ENHANCED | MAXIMUM
+  backgroundSeed String?             // seed for deterministic guilloche pattern per template
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, documentType])
+}
+
+// ---- 4. Chained audit log --------------------------------------
+// Add to your EXISTING AuditLog model:
+//
+//   previousHash String? @db.VarChar(64)   // hash of the prior log entry
+//   entryHash    String? @db.VarChar(64)   // hash of THIS entry (incl. previousHash)
+//
+// This turns the audit log into an append-only chain: altering any
+// past entry breaks every entryHash after it, so tampering is
+// mathematically detectable on read, not just logged and trusted.
+
+// ---- 5. Verification anomaly flags -------------------------------
+// Add to your EXISTING VerificationEvent model:
+//
+//   country      String?
+//   city         String?
+//   isAnomalous  Boolean  @default(false)
+//   anomalyReason String? @db.Text
