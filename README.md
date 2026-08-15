@@ -1,137 +1,95 @@
-# Firmatel Security & Design Upgrade
+# Firmatel
 
-This is a drop-in package for your existing Next.js + Prisma + MariaDB
-project. It adds cryptographic document signing, a tamper-evident
-audit log, a template data model, and a redesigned visual identity.
-Nothing here replaces your existing tables — it extends them.
+**Secure document infrastructure for institutions that issue certificates, IDs, licences, and credentials.**
 
-## What's in here
+Firmatel replaces static templates and unverifiable PDFs with a document system built on real cryptography: every issued document is signed with your organization's private key, embedded with a live QR code, and verifiable in real time — so a photocopy or edited PDF can never pass as authentic.
 
+Built with Next.js, Prisma, and MariaDB.
+
+---
+
+## Why Firmatel
+
+Most "secure" document systems rely on a serial number and a lookup page — which proves nothing beyond "a row with this ID exists." Firmatel is built around a different guarantee: **the document's content is cryptographically signed at issuance**, and verification recomputes that signature from the live database record every time. If a document's title, recipient, or status changes — through the app or a direct database edit — the signature stops matching, and verification reports `TAMPERED` instead of `VALID`.
+
+## Core features
+
+### Cryptographic authenticity
+- **Ed25519 signing** — every document, credential, and ticket is signed at issuance using a per-organization keypair. Private keys are encrypted at rest (AES-256-GCM) and never leave the server.
+- **Tamper-evident audit log** — every action is chained by hash (like a lightweight blockchain), so editing historical records is mathematically detectable, not just logged and trusted.
+- **Live verification** — public `/verify/<code>` pages and an in-dashboard admin lookup tool both re-check the signature against the current database state on every request. Nothing is cached.
+
+### Document generation
+- **Customizable templates per document type** — Certificates, IDs, Licences, Permits, Letters, Badges, Passes, Tickets, and more each get their own layout (full-page, card, or ticket shape), independently configurable per organization.
+- **30+ fonts** across formal serif, calligraphy/script, old-world/blackletter, and monospace styles — with automatic fallback if a font source becomes unreachable, so a bad font never breaks generation.
+- **Full branding control** — logo upload, brand colors, fonts, frame styles, corner styles, and content density, all per document type.
+- **Security feature stack** — QR codes, real scannable barcodes, watermarks, scattered curved microprinting, security thread overlays, metallic hologram foil strips, and visual digital-signature seals — each individually toggleable per document type, not bundled as one fixed look.
+- **PDF-level protection** — generated PDFs carry real owner-password permissions (no modifying, no copying) using PDF's native security model.
+- **Passport photo support** — recipient photos on ID-style documents, uploaded at issuance.
+
+### Operations
+- Sortable, filterable, searchable document management (by type, status, issue date, expiry date).
+- Paginated, searchable audit log with live chain-integrity verification.
+- Organization-wide settings: branding, document numbering, verification policy, regional format.
+
+## Tech stack
+
+| Layer | Technology |
+|---|---|
+| Framework | Next.js (App Router, Server Actions) |
+| Database | MariaDB via Prisma ORM |
+| PDF generation | `@react-pdf/renderer` |
+| Cryptography | Node `crypto` (Ed25519, AES-256-GCM, SHA-256) |
+| QR / Barcode | `qrcode`, `bwip-js` |
+
+## Getting started
+
+```bash
+git clone https://github.com/Allan-Davis/firmatel.git
+cd firmatel
+npm install
 ```
-prisma/schema-additions.prisma   # models + fields to add to schema.prisma
-migrations/2026_security_upgrade.sql   # same, as raw SQL for phpMyAdmin/XAMPP
-lib/security/signing.ts          # Ed25519 sign/verify (server-only)
-lib/security/audit-chain.ts      # hash-chained audit log
-lib/security/guilloche.ts        # deterministic security-pattern generator
-styles/design-tokens.css         # the visual identity's CSS variables
-components/dashboard/Sidebar.tsx
-components/dashboard/StatCard.tsx
-app/verify/[code]/page.tsx
-app/verify/[code]/VerificationClient.tsx
-app/api/verify/[code]/route.ts
+
+Set up your environment:
+
+```bash
+cp .env.example .env
 ```
 
-## Step 1 — Apply the schema changes
+Fill in `.env`:
+```
+DATABASE_URL="mysql://user:password@localhost:3306/firmatel"
+FIRMATEL_MASTER_KEY=<generate with the command below>
+NEXT_PUBLIC_APP_URL="http://localhost:3000"
+```
 
-Option A (Prisma CLI, recommended):
-1. Open your `prisma/schema.prisma`.
-2. Add the `OrganizationKey` and `DocumentTemplate` models from
-   `prisma/schema-additions.prisma` verbatim.
-3. Add the individual fields listed in the comments (`contentHash`,
-   `signature`, `signedAt`, `keyVersion`, etc.) to your existing
-   `Document`, `Credential`, `Ticket`, `AuditLog`, and
-   `VerificationEvent` models.
-4. Run:
-   ```
-   npx prisma migrate dev --name security_upgrade
-   ```
-
-Option B (direct SQL): run `migrations/2026_security_upgrade.sql`
-against your `firmatel` database in phpMyAdmin, then run
-`npx prisma db pull` and `npx prisma generate` to sync the client.
-
-## Step 2 — Generate your master key and per-org keypairs
-
+Generate a master key (used to encrypt organization signing keys at rest):
 ```bash
 node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
 ```
-Add the output to `.env` as `FIRMATEL_MASTER_KEY`. **Never commit this
-file.** Then, for each organization (a one-off script or an admin
-action in Settings):
 
-```ts
-import { generateOrganizationKeypair } from "@/lib/security/signing";
-const { publicKey, privateKeyEnc } = generateOrganizationKeypair();
-await prisma.organizationKey.create({
-  data: { organizationId, publicKey, privateKeyEnc },
-});
+Apply the database schema:
+```bash
+npx prisma migrate dev
+npx prisma generate
 ```
 
-## Step 3 — Sign documents at issuance
-
-In your existing `POST /api/documents` (and the credential/ticket
-equivalents), after the row is created:
-
-```ts
-import { issueSignature } from "@/lib/security/signing";
-
-const orgKey = await prisma.organizationKey.findUnique({ where: { organizationId } });
-const { contentHash, signature, signedAt } = issueSignature(
-  {
-    organizationId,
-    documentNumber: doc.documentNumber,
-    documentType: doc.documentType,
-    title: doc.title,
-    recipientName: recipient?.fullName ?? null,
-    issueDate: doc.issueDate.toISOString(),
-    status: doc.status,
-  },
-  orgKey.privateKeyEnc
-);
-
-await prisma.document.update({
-  where: { id: doc.id },
-  data: { contentHash, signature, signedAt, keyVersion: orgKey.keyVersion },
-});
+Generate a signing keypair for your organization:
+```bash
+npx tsx scripts/generate-org-key.ts <your-organization-id>
 ```
 
-Do the same anywhere `status` changes (e.g. revocation) — a new
-status means a new hash, which means a new signature. Old signatures
-naturally stop validating for the old status, which is correct: the
-signature attests to the record *as it currently stands*.
+Run the app:
+```bash
+npm run dev
+```
 
-## Step 4 — Wire the audit log
+## Security notes
 
-Wherever you currently call `prisma.auditLog.create(...)`, wrap it
-with `buildChainedEntry` from `lib/security/audit-chain.ts` (see the
-usage example in that file's docstring). Add a "Verify Integrity"
-action in `/dashboard/audit` that calls `verifyChain()` over an
-organization's entries and shows a pass/fail banner.
+- `FIRMATEL_MASTER_KEY` must never be committed or exposed client-side — it's the root key protecting every organization's signing capability. Treat it like a production database password.
+- `.env` is excluded from version control by default — verify this before your first push.
+- Document PDF permissions restrict editing/copying in compliant readers but cannot prevent visual recreation (e.g. screenshotting). The actual authenticity guarantee is the live signature check at `/verify`, not the PDF file itself.
 
-## Step 5 — Verification route + page
+## License
 
-`app/api/verify/[code]/route.ts` and `app/verify/[code]/` are ready
-to use — adjust the import path for your Prisma client
-(`@/lib/db` or wherever `PrismaClient` is instantiated in your
-project) and the folder name if your existing route uses
-`[verificationCode]` instead of `[code]`.
-
-## Step 6 — Visual identity
-
-1. Add `@import "../styles/design-tokens.css";` to the top of your
-   `app/globals.css`.
-2. Load the two fonts (Fraunces or Newsreader for display, IBM Plex
-   Sans for body, IBM Plex Mono for data) via `next/font/google` in
-   your root layout.
-3. Swap your current sidebar component for
-   `components/dashboard/Sidebar.tsx`, and use `StatCard` in place of
-   the current dashboard stat tiles.
-4. Everywhere else in the dashboard, reuse the CSS variables
-   (`var(--ink-900)`, `var(--brass-500)`, etc.) rather than hardcoded
-   hex values, so future theme tweaks stay in one file.
-
-## What I'd build next (in order)
-
-1. **Template designer UI** on top of `DocumentTemplate.layout` (a
-   JSON canvas: drag fields onto a mm-based page, save positions).
-2. **PDF generation** that renders a template + `guilloche.ts`
-   background server-side (e.g. via `@react-pdf/renderer` or
-   Puppeteer) — same seed as stored in `backgroundSeed` so print
-   output matches what was signed.
-3. **Anomaly detection** on `VerificationEvent`: geo-IP lookup on
-   write, flag `isAnomalous` when the same code is verified from two
-   distant locations within a short window.
-4. **Bulk issuance** (CSV upload → loop over Step 3 above).
-
-Tell me which of these you want next and I'll build it the same way —
-actual files, wired into what's already here.
+Proprietary — All rights reserved.
